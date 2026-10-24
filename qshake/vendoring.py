@@ -1,6 +1,7 @@
 """
 Resolves, installs and loads the vendored PySide6 build for the running
-Blender version.
+Blender version. The vendored build is only used when PySide6 cannot already
+be imported (see core.initialise), so a studio's own PySide6 is preferred.
 
 This module must not import PySide6, as it is used to find the build to load.
 """
@@ -68,20 +69,28 @@ def _vendor_folder():
     return os.path.join(constants.VENDOR_ROOT, name) if name else None
 
 
+def add_general():
+    """
+    Adds the folder of pure python modules (such as Qt.py) to the path. They
+    are needed whichever PySide6 build is used.
+    """
+    if constants.VENDOR_GENERAL not in sys.path:
+        sys.path.insert(0, constants.VENDOR_GENERAL)
+
+
 def add():
     """
-    Adds the vendor folders for the running Blender version to the path, so
-    PySide6 can be imported. Returns False if there is no PySide6 build for it.
+    Adds the vendored PySide6 build for the running Blender version to the
+    path, so PySide6 can be imported. Returns False if there is no PySide6
+    build for it.
     """
     _VendorState.folder = _vendor_folder()
 
     if not _VendorState.folder:
         return False
 
-    # -- The platform folder goes first, so it takes priority over general
-    for path in reversed((_VendorState.folder, constants.VENDOR_GENERAL)):
-        if path not in sys.path:
-            sys.path.insert(0, path)
+    if _VendorState.folder not in sys.path:
+        sys.path.insert(0, _VendorState.folder)
 
     if sys.platform == "win32":
         for name in ("shiboken6", "PySide6"):

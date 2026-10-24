@@ -5,12 +5,16 @@ functions for parenting and showing widgets.
 PySide6 is not imported at module level, as the vendor folder must be added
 to the path first - initialise does both.
 """
+import sys
 import time
 import atexit
+import logging
 
 from . import _platforms
 from . import constants
 from . import vendoring
+
+log = logging.getLogger(__name__)
 
 
 class _CoreState:
@@ -39,15 +43,25 @@ class _CoreState:
 
 def initialise():
     """
-    Adds the vendor folders to the path, imports PySide6 and creates the
-    application. Returns False if there is no PySide6 build for this Blender.
+    Imports PySide6 and creates the application. A PySide6 which can already
+    be imported (such as a studio's own build) is used in preference to the
+    vendored one, so a second PySide6 is never loaded or downloaded when one
+    is already available.
+
+    Returns False if PySide6 cannot be imported and there is no vendored
+    build for this Blender.
     """
-    if not vendoring.add():
+    vendoring.add_general()
+
+    if not _import_pyside():
         return False
 
-    # -- Imported before registering _shutdown, as atexit runs in reverse
-    # -- order and PySide6 registers its own cleanup when first imported
-    import PySide6.QtWidgets
+    import PySide6
+    import PySide6.QtCore
+    log.info(f"qshake : using PySide6 {PySide6.QtCore.qVersion()} from {PySide6.__path__[0]}")
+
+    # -- PySide6 is imported before registering _shutdown, as atexit runs in
+    # -- reverse order and PySide6 registers its own cleanup when first imported
     atexit.register(_shutdown)
 
     _CoreState.backend = _platforms.backend()
@@ -57,22 +71,59 @@ def initialise():
     return True
 
 
+def _import_pyside():
+    """
+    Imports PySide6.QtWidgets: as it is if it can already be imported,
+    otherwise from the vendored build. Returns False if neither works.
+    """
+    try:
+        import PySide6.QtWidgets  # noqa: F401
+        return True
+
+    except ImportError as error:
+        # -- A PySide6 which is found but fails to load (for instance one
+        # -- built for another Python) is partly imported, and must be
+        # -- forgotten before the vendored build can be imported in its place
+        if "PySide6" in sys.modules:
+            log.info(f"qshake : the PySide6 already on the path could not be loaded ({error})")
+        _forget_modules("PySide6", "shiboken6")
+
+    if not vendoring.add():
+        return False
+
+    import PySide6.QtWidgets  # noqa: F401
+    return True
+
+
+def _forget_modules(*names):
+    for name in list(sys.modules):
+        if name.split(".")[0] in names:
+            del sys.modules[name]
+
+
 def install_pyside(blender_version=None, pyside_version=None, force=False):
     """
     Installs PySide6 into the vendor folder used by this Blender version,
     then initialises qshake so it can be used straight away. Blender will be
     unresponsive whilst PySide6 downloads.
 
+    Nothing is downloaded if qshake already has a PySide6 (vendored, or one
+    which could already be imported), unless force is given.
+
     Args:
         blender_version: The vendor folder to install (e.g. "4.2"). Defaults
             to the folder the running Blender version uses.
         pyside_version: Overrides the PySide6 version listed in
             install_vendor.VERSIONS.
-        force: Reinstall even if the folder already contains PySide6.
+        force: Install even if qshake already has PySide6, or the folder
+            already contains it.
 
     Returns:
         True if qshake is initialised and ready to use.
     """
+    if _CoreState.initialised and not force:
+        return True
+
     vendoring.install(blender_version, pyside_version, force)
 
     if not _CoreState.initialised:

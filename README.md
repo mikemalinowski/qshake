@@ -4,14 +4,19 @@ A very light weight module which allows PySide6 to be used within Blender.
 PySide6 lives in a vendor folder inside the package (one build per platform
 and Blender version), so nothing is installed into Blender's own python.
 
+If PySide6 can already be imported when qshake is (a studio's own build, for
+instance), qshake uses it and never adds or downloads its own. Which PySide6
+is used, and where from, is logged at info level by `qshake.core`.
+
 ## Setup
 
 1. Make the folder containing the `qshake` package importable in Blender, for
    instance by adding it to `sys.path` or placing it in Blender's
    `scripts/modules` folder.
 
-2. If the vendor folder for your Blender version is not already present,
-   install PySide6 from within Blender (e.g. in the Python Console):
+2. If PySide6 cannot already be imported and the vendor folder for your
+   Blender version is not present, install PySide6 from within Blender (e.g.
+   in the Python Console):
 
    ```python
    import qshake
@@ -23,7 +28,8 @@ and Blender version), so nothing is installed into Blender's own python.
    used straight away without restarting. Blender is unresponsive whilst it
    downloads (pip's output is shown in Window > Toggle System Console).
 
-`install_pyside()` does nothing if PySide6 is already installed, so it is safe
+`install_pyside()` does nothing if qshake already has PySide6 (either its own,
+or one which could already be imported), unless `force=True`, so it is safe
 to call from a startup script. Until it has been run, `import qshake` still
 works but qshake's functions raise an error pointing at `install_pyside()`.
 See `qshake/_vendor/README.md` for more detail.

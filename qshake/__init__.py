@@ -9,6 +9,9 @@ folder per platform and Blender version (as different Blender versions need
 different PySide6 builds). Importing qshake adds the right one to the path,
 so `from PySide6 import QtWidgets` then works from anywhere within Blender.
 
+If PySide6 can already be imported (a studio's own build, for instance),
+that one is used instead, and nothing is added to the path or downloaded.
+
 Because Blender owns the main event loop, qshake never calls `app.exec()`.
 Instead it pumps the Qt event loop from a Blender timer.
 
