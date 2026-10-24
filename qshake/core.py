@@ -239,6 +239,13 @@ def _create_pump_limiter():
     current pump's deadline has passed. Qt calls it before dispatching each
     native message, and an interrupted loop stops after that message, so no
     message is lost.
+
+    A message dispatched by the pump can start a nested native loop which
+    outlasts the deadline, such as Windows' modal loop while a Qt window is
+    resized. Every interrupt posts a wake-up message, and posted messages
+    are retrieved before mouse input, so interrupting on every message
+    would starve that loop of the mouse release which ends it. After each
+    interrupt the deadline is therefore moved on by another time limit.
     """
     from PySide6 import QtCore
 
@@ -247,10 +254,15 @@ def _create_pump_limiter():
         def nativeEventFilter(self, event_type, message):
             deadline = _CoreState.pump_deadline
 
-            if deadline is not None and time.perf_counter() > deadline:
-                dispatcher = QtCore.QAbstractEventDispatcher.instance()
-                if dispatcher is not None:
-                    dispatcher.interrupt()
+            if deadline is not None:
+                now = time.perf_counter()
+
+                if now > deadline:
+                    _CoreState.pump_deadline = now + constants.PUMP_TIME_LIMIT
+
+                    dispatcher = QtCore.QAbstractEventDispatcher.instance()
+                    if dispatcher is not None:
+                        dispatcher.interrupt()
 
             return False, 0
 
