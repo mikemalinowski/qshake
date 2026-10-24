@@ -5,6 +5,7 @@ functions for parenting and showing widgets.
 PySide6 is not imported at module level, as the vendor folder must be added
 to the path first - initialise does both.
 """
+import time
 import atexit
 
 from . import _platforms
@@ -28,6 +29,12 @@ class _CoreState:
     # -- Blender's native window which is used to read its geometry
     main_window = None
     blender_window = None
+
+    # -- The native event filter which ends a pump once its time is up, and
+    # -- the time (from time.perf_counter) the current pump must end by, or
+    # -- None when no pump is running
+    pump_limiter = None
+    pump_deadline = None
 
 
 def initialise():
@@ -91,6 +98,10 @@ def application():
         app.setQuitOnLastWindowClosed(False)
 
     _CoreState.backend.setup(app)
+
+    if _CoreState.pump_limiter is None:
+        _CoreState.pump_limiter = _create_pump_limiter()
+        app.installNativeEventFilter(_CoreState.pump_limiter)
 
     try:
         import bpy
@@ -201,13 +212,49 @@ def _pump():
     if app is None:
         return None
 
+    # -- Blender can run its timers while handling a native message, which
+    # -- the pump itself may have dispatched, so never pump within a pump
+    if _CoreState.pump_deadline is not None:
+        return constants.TIMER_INTERVAL
+
     _sync_main_window()
-    app.processEvents()
+
+    # -- The pump limiter interrupts the event loop once the deadline passes
+    _CoreState.pump_deadline = time.perf_counter() + constants.PUMP_TIME_LIMIT
+    try:
+        app.processEvents()
+
+    finally:
+        _CoreState.pump_deadline = None
 
     # -- deleteLater relies on a running event loop, so flush them manually
     app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
 
     return constants.TIMER_INTERVAL
+
+
+def _create_pump_limiter():
+    """
+    Returns a native event filter which interrupts Qt's event loop once the
+    current pump's deadline has passed. Qt calls it before dispatching each
+    native message, and an interrupted loop stops after that message, so no
+    message is lost.
+    """
+    from PySide6 import QtCore
+
+    class _PumpLimiter(QtCore.QAbstractNativeEventFilter):
+
+        def nativeEventFilter(self, event_type, message):
+            deadline = _CoreState.pump_deadline
+
+            if deadline is not None and time.perf_counter() > deadline:
+                dispatcher = QtCore.QAbstractEventDispatcher.instance()
+                if dispatcher is not None:
+                    dispatcher.interrupt()
+
+            return False, 0
+
+    return _PumpLimiter()
 
 
 def _sync_main_window():
